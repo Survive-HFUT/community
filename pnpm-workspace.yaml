@@ -1,0 +1,5 @@
+allowBuilds:
+  esbuild: true
+  vue-demi: true
+  # wrangler 依赖 workerd，需要执行其 postinstall 下载二进制
+  workerd: true

@@ -1,0 +1,34 @@
+{
+  "name": "community",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "build": "nuxt build",
+    "dev": "nuxt dev",
+    "generate": "nuxt generate",
+    "preview": "wrangler dev .output/server/index.mjs --assets .output/public",
+    "deploy": "nuxt build && wrangler deploy .output/server/index.mjs --assets .output/public",
+    "postinstall": "nuxt prepare",
+    "typecheck": "nuxt typecheck",
+    "db:init": "wrangler d1 execute waline-db --remote --file=./layers/waline/schema.sql",
+    "db:init:local": "wrangler d1 execute waline-db --local --file=./layers/waline/schema.sql",
+    "format": "prettier --write ./**/*.{js,ts,tsx,vue,json}"
+  },
+  "dependencies": {
+    "@nuxt/ui": "^4.11.1",
+    "bcryptjs": "^3.0.3",
+    "nuxt": "^4.5.2",
+    "tailwindcss": "^4.3.3",
+    "vue": "^3.5.42",
+    "vue-router": "^5.3.1"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260702.1",
+    "@iconify-json/lucide": "^1.2.130",
+    "@types/node": "^26.5.0",
+    "prettier": "^3.9.6",
+    "typescript": "^5.9.3",
+    "vue-tsc": "^3.3.7",
+    "wrangler": "^4.122.0"
+  }
+}
