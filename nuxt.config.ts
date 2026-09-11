@@ -6,10 +6,40 @@ export default defineNuxtConfig({
   devtools: { enabled: true },
 
   nitro: {
-    // Cloudflare Workers + Static Assets。
-    // 选中该预设时 Nitro 会把根目录 wrangler.jsonc 合并进 .output/server/wrangler.json，
-    // 并在 dev 下用 wrangler 的 getPlatformProxy 注入 event.context.cloudflare.env（真实 D1 绑定）。
     preset: 'cloudflare_module',
+    cloudflare: {
+      deployConfig: true,
+
+      wrangler: {
+        name: 'community',
+        compatibility_flags: ['nodejs_compat', 'no_nodejs_compat_v2'],
+
+        d1_databases: [
+          {
+            binding: 'DB',
+            database_name: 'waline-db',
+            database_id: '43359dbd-a17b-4549-ad08-5bbc5dcc489a',
+          },
+        ],
+
+        assets: {
+          directory: './output/public',
+          binding: 'ASSETS',
+          not_found_handling: 'single-page-application',
+          run_worker_first: ['/api/**'],
+        },
+
+        routes: [
+          {
+            pattern: 'community.survive-hfut.cc',
+            custom_domain: true,
+          },
+        ],
+        workers_dev: false,
+        preview_urls: false,
+      },
+    },
+
     prerender: {
       autoSubfolderIndex: false,
       crawlLinks: true,

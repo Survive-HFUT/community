@@ -7,7 +7,7 @@
     "dev": "nuxt dev",
     "generate": "nuxt generate",
     "preview": "wrangler dev .output/server/index.mjs --assets .output/public",
-    "deploy": "nuxt build && wrangler deploy .output/server/index.mjs --assets .output/public",
+    "deploy": "nuxt build && wrangler deploy",
     "postinstall": "nuxt prepare",
     "typecheck": "nuxt typecheck",
     "db:init": "wrangler d1 execute waline-db --remote --file=./layers/waline/schema.sql",

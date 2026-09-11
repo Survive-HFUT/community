@@ -26,4 +26,4 @@ logs
 # Cloudflare
 .dev.vars
 .dev.vars.*
-.wrangler/state/v3
+.wrangler
