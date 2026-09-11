@@ -1,12 +1,37 @@
+import { and, count, desc, eq, inArray, ne, sql } from 'drizzle-orm';
+import { getDb } from './client';
+import {
+  comments,
+  USER_SOCIAL_COLUMNS,
+  users,
+  type UserInsert,
+  type UserSocialField,
+} from './schema';
+
 /**
- * 用户数据访问层 —— 所有 wl_Users 相关 SQL 的唯一出口。
+ * 用户数据访问层 —— 所有 wl_Users 相关查询的唯一出口（Drizzle 实现）。
  * 业务代码通过 createUser / getUserById 等函数访问数据库，不再直接写 SQL。
  */
 
 /** auth 中间件/用户资料常用的列（含通知偏好列） */
-const USER_AUTH_COLUMNS = `id, display_name, email, type, url, avatar, label,
-  github, twitter, facebook, google, weibo, qq, "2fa",
-  notify_admin_comment, notify_reply`;
+const USER_AUTH_COLUMNS = {
+  id: users.id,
+  display_name: users.display_name,
+  email: users.email,
+  type: users.type,
+  url: users.url,
+  avatar: users.avatar,
+  label: users.label,
+  github: users.github,
+  twitter: users.twitter,
+  facebook: users.facebook,
+  google: users.google,
+  weibo: users.weibo,
+  qq: users.qq,
+  '2fa': users['2fa'],
+  notify_admin_comment: users.notify_admin_comment,
+  notify_reply: users.notify_reply,
+} as const;
 
 export interface CreateUserData {
   display_name?: string;
@@ -20,42 +45,56 @@ export interface CreateUserData {
   socialId?: string;
 }
 
+/**
+ * 把（可能来自调用方的）社交字段名解析成受控的列名。
+ * 不在白名单里的字段一律回退到 github —— 这样动态列名永远不会拼进 SQL。
+ */
+function resolveSocialField(field: string | undefined): UserSocialField {
+  const key = (field || 'github') as UserSocialField;
+  return key in USER_SOCIAL_COLUMNS ? key : 'github';
+}
+
 /** 按 id 取用户（auth 中间件 / 注册后回读 / 通知收件人解析用） */
 export async function getUserById(
-  db: D1Database,
+  d1: D1Database,
   id: number,
 ): Promise<any | null> {
-  return db
-    .prepare(`SELECT ${USER_AUTH_COLUMNS} FROM wl_Users WHERE id = ?`)
-    .bind(id)
-    .first();
+  const db = getDb(d1);
+  const row = await db
+    .select(USER_AUTH_COLUMNS)
+    .from(users)
+    .where(eq(users.id, id))
+    .get();
+  return row ?? null;
 }
 
 /** 登录用：按邮箱取完整行（含 password / 2fa） */
 export async function getUserAuthByEmail(
-  db: D1Database,
+  d1: D1Database,
   email: string,
 ): Promise<any | null> {
-  return db
-    .prepare('SELECT * FROM wl_Users WHERE email = ?')
-    .bind(email)
-    .first();
+  const db = getDb(d1);
+  const row = await db.select().from(users).where(eq(users.email, email)).get();
+  return row ?? null;
 }
 
 /** 按邮箱查 id（注册查重） */
 export async function getUserByEmail(
-  db: D1Database,
+  d1: D1Database,
   email: string,
 ): Promise<{ id: number } | null> {
-  return db
-    .prepare('SELECT id FROM wl_Users WHERE email = ?')
-    .bind(email)
-    .first<{ id: number }>();
+  const db = getDb(d1);
+  const row = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(eq(users.email, email))
+    .get();
+  return row ?? null;
 }
 
 /** 管理员按邮箱查用户（导入流程用，不暴露敏感列） */
 export async function getAdminUserByEmail(
-  db: D1Database,
+  d1: D1Database,
   email: string,
 ): Promise<{
   id: number;
@@ -63,224 +102,289 @@ export async function getAdminUserByEmail(
   email: string;
   type: string;
 } | null> {
-  return db
-    .prepare(
-      'SELECT id, display_name, email, type FROM wl_Users WHERE email = ?',
-    )
-    .bind(email)
-    .first<{ id: number; display_name: string; email: string; type: string }>();
+  const db = getDb(d1);
+  const row = await db
+    .select({
+      id: users.id,
+      display_name: users.display_name,
+      email: users.email,
+      type: users.type,
+    })
+    .from(users)
+    .where(eq(users.email, email))
+    .get();
+  return row ?? null;
 }
 
 /**
  * 按社交字段（github/qq 等）查用户。
- * ⚠️ socialField 必须来自调用方的白名单，不能直接使用请求参数。
+ * 字段名统一经 `resolveSocialField` 收敛到白名单（非法值回退 github），
+ * 因此不存在把请求参数直接拼进 SQL 的风险。
  */
 export async function getUserBySocial(
-  db: D1Database,
+  d1: D1Database,
   socialField: string,
   socialId: string,
 ): Promise<any | null> {
-  return db
-    .prepare(`SELECT * FROM wl_Users WHERE ${socialField} = ?`)
-    .bind(socialId)
-    .first();
+  const db = getDb(d1);
+  const column = USER_SOCIAL_COLUMNS[resolveSocialField(socialField)];
+  const row = await db.select().from(users).where(eq(column, socialId)).get();
+  return row ?? null;
 }
 
 /** 检查某社交 id 是否已绑定到其它账号（返回冲突行的 id） */
 export async function getSocialConflict(
-  db: D1Database,
+  d1: D1Database,
   socialField: string,
   socialId: string,
   excludeId: number,
 ): Promise<{ id: number } | null> {
-  return db
-    .prepare(`SELECT id FROM wl_Users WHERE ${socialField} = ? AND id != ?`)
-    .bind(socialId, excludeId)
-    .first<{ id: number }>();
+  const db = getDb(d1);
+  const column = USER_SOCIAL_COLUMNS[resolveSocialField(socialField)];
+  const row = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(and(eq(column, socialId), ne(users.id, excludeId)))
+    .get();
+  return row ?? null;
 }
 
 /** 给用户绑定社交账号 */
 export async function bindSocial(
-  db: D1Database,
+  d1: D1Database,
   userId: number,
   socialField: string,
   socialId: string,
 ): Promise<void> {
+  const db = getDb(d1);
+  const field = resolveSocialField(socialField);
   await db
-    .prepare(
-      `UPDATE wl_Users SET ${socialField} = ?, updatedAt = datetime('now') WHERE id = ?`,
-    )
-    .bind(socialId, userId)
-    .run();
+    .update(users)
+    .set({
+      [field]: socialId,
+      updatedAt: sql`(datetime('now'))`,
+    } as unknown as Partial<UserInsert>)
+    .where(eq(users.id, userId));
 }
 
 /** 用户总数（注册判首个管理员） */
-export async function countUsers(db: D1Database): Promise<number> {
-  const row = await db
-    .prepare('SELECT COUNT(*) as count FROM wl_Users')
-    .first<{ count: number }>();
+export async function countUsers(d1: D1Database): Promise<number> {
+  const db = getDb(d1);
+  const [row] = await db.select({ count: count() }).from(users);
   return row?.count ?? 0;
 }
 
 /** 管理员分页用户列表 */
 export async function listUsers(
-  db: D1Database,
+  d1: D1Database,
   pageSize: number,
   offset: number,
 ): Promise<any[]> {
-  const result = await db
-    .prepare(
-      'SELECT id, display_name, email, type, url, avatar, label, createdAt FROM wl_Users ORDER BY createdAt DESC LIMIT ? OFFSET ?',
-    )
-    .bind(pageSize, offset)
-    .all();
-  return result.results;
+  const db = getDb(d1);
+  return db
+    .select({
+      id: users.id,
+      display_name: users.display_name,
+      email: users.email,
+      type: users.type,
+      url: users.url,
+      avatar: users.avatar,
+      label: users.label,
+      createdAt: users.createdAt,
+    })
+    .from(users)
+    .orderBy(desc(users.createdAt))
+    .limit(pageSize)
+    .offset(offset);
 }
 
 /** 公开：评论数排行用户 */
 export async function getTopCommenters(
-  db: D1Database,
-  count: number,
+  d1: D1Database,
+  limit: number,
 ): Promise<any[]> {
-  const result = await db
-    .prepare(
-      `SELECT u.id, u.display_name, u.url, u.avatar, u.label,
-              COUNT(c.id) as comment_count
-       FROM wl_Users u
-       LEFT JOIN wl_Comment c ON c.user_id = u.id AND c.status = 'approved'
-       GROUP BY u.id
-       ORDER BY comment_count DESC
-       LIMIT ?`,
+  const db = getDb(d1);
+  return db
+    .select({
+      id: users.id,
+      display_name: users.display_name,
+      url: users.url,
+      avatar: users.avatar,
+      label: users.label,
+      comment_count: count(comments.id),
+    })
+    .from(users)
+    .leftJoin(
+      comments,
+      and(eq(comments.user_id, users.id), eq(comments.status, 'approved')),
     )
-    .bind(count)
-    .all();
-  return result.results;
+    .groupBy(users.id)
+    .orderBy(desc(count(comments.id)))
+    .limit(limit);
 }
 
 /** 创建用户，返回新用户 id（社交登录可顺带绑定社交字段） */
 export async function createUser(
-  db: D1Database,
+  d1: D1Database,
   data: CreateUserData,
 ): Promise<number> {
-  const socialField = data.socialField || 'github';
-  const result = await db
-    .prepare(
-      `INSERT INTO wl_Users (display_name, email, password, type, url, avatar, ${socialField})
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    )
-    .bind(
-      data.display_name || data.email.split('@')[0],
-      data.email,
-      data.password,
-      data.type,
-      data.url || '',
-      data.avatar || '',
-      data.socialId || '',
-    )
-    .run();
-  return Number(result.meta.last_row_id);
+  const db = getDb(d1);
+  const field = resolveSocialField(data.socialField);
+
+  const values = {
+    display_name: data.display_name || data.email.split('@')[0],
+    email: data.email,
+    password: data.password,
+    type: data.type,
+    url: data.url || '',
+    avatar: data.avatar || '',
+    [field]: data.socialId || '',
+  } as unknown as UserInsert;
+
+  const [row] = await db
+    .insert(users)
+    .values(values)
+    .returning({ id: users.id });
+  return row!.id;
 }
 
 /**
  * 按白名单更新用户字段。
- * 调用方负责校验字段名（allowedFields），这里只做拼接。
+ * 调用方只需给出「想改的字段」，列名由下面的白名单收敛，
+ * 非法字段名会被直接忽略，不会被拼接进 SQL。
  */
 export async function updateUserFields(
-  db: D1Database,
+  d1: D1Database,
   id: string | number,
   updates: Record<string, unknown>,
 ): Promise<void> {
-  const fields = Object.keys(updates);
-  if (fields.length === 0) return;
-  const setClauses = fields.map((f) => `"${f}" = ?`).join(', ');
+  const COLUMNS = {
+    display_name: users.display_name,
+    password: users.password,
+    type: users.type,
+    label: users.label,
+    url: users.url,
+    avatar: users.avatar,
+    github: users.github,
+    twitter: users.twitter,
+    facebook: users.facebook,
+    google: users.google,
+    weibo: users.weibo,
+    qq: users.qq,
+    '2fa': users['2fa'],
+    notify_admin_comment: users.notify_admin_comment,
+    notify_reply: users.notify_reply,
+  } as const;
+
+  const set: Record<string, unknown> = {};
+  for (const [field, value] of Object.entries(updates)) {
+    if (field in COLUMNS) set[field] = value;
+  }
+  if (Object.keys(set).length === 0) return;
+
+  const db = getDb(d1);
   await db
-    .prepare(
-      `UPDATE wl_Users SET ${setClauses}, updatedAt = datetime('now') WHERE id = ?`,
-    )
-    .bind(...fields.map((f) => updates[f]), id)
-    .run();
+    .update(users)
+    .set({
+      ...set,
+      updatedAt: sql`(datetime('now'))`,
+    } as unknown as Partial<UserInsert>)
+    .where(eq(users.id, Number(id)));
 }
 
 /** 删除用户（未验证/guest 硬删） */
-export async function deleteUser(db: D1Database, id: number): Promise<void> {
-  await db.prepare('DELETE FROM wl_Users WHERE id = ?').bind(id).run();
+export async function deleteUser(d1: D1Database, id: number): Promise<void> {
+  const db = getDb(d1);
+  await db.delete(users).where(eq(users.id, id));
 }
 
 /** 封禁用户 */
-export async function banUser(db: D1Database, id: number): Promise<void> {
+export async function banUser(d1: D1Database, id: number): Promise<void> {
+  const db = getDb(d1);
   await db
-    .prepare(
-      "UPDATE wl_Users SET type = 'banned', updatedAt = datetime('now') WHERE id = ?",
-    )
-    .bind(id)
-    .run();
+    .update(users)
+    .set({ type: 'banned', updatedAt: sql`(datetime('now'))` })
+    .where(eq(users.id, id));
 }
 
 /** 查用户类型（删除/封禁判定用） */
 export async function getUserType(
-  db: D1Database,
+  d1: D1Database,
   id: number,
 ): Promise<{ type: string } | null> {
-  return db
-    .prepare('SELECT type FROM wl_Users WHERE id = ?')
-    .bind(id)
-    .first<{ type: string }>();
+  const db = getDb(d1);
+  const row = await db
+    .select({ type: users.type })
+    .from(users)
+    .where(eq(users.id, id))
+    .get();
+  return row ?? null;
 }
 
 /** 邮件通知：所有开启「收到新评论通知」且绑定了邮箱的管理员 */
 export async function getAdminsForNotify(
-  db: D1Database,
+  d1: D1Database,
 ): Promise<Array<{ id: number; display_name: string; email: string }>> {
-  const result = await db
-    .prepare(
-      `SELECT id, display_name, email FROM wl_Users
-       WHERE type = 'administrator' AND email <> '' AND notify_admin_comment = 1`,
-    )
-    .all();
-  return result.results as Array<{
-    id: number;
-    display_name: string;
-    email: string;
-  }>;
+  const db = getDb(d1);
+  return db
+    .select({
+      id: users.id,
+      display_name: users.display_name,
+      email: users.email,
+    })
+    .from(users)
+    .where(
+      and(
+        eq(users.type, 'administrator'),
+        ne(users.email, ''),
+        eq(users.notify_admin_comment, 1),
+      ),
+    );
 }
 
 /** 批量取用户（评论列表等避免 N+1 查询） */
 export async function getUsersByIds(
-  db: D1Database,
+  d1: D1Database,
   ids: number[],
 ): Promise<any[]> {
   if (ids.length === 0) return [];
-  const placeholders = ids.map(() => '?').join(',');
-  const result = await db
-    .prepare(
-      `SELECT id, display_name, email, type, url, avatar, label,
-              notify_admin_comment, notify_reply
-       FROM wl_Users WHERE id IN (${placeholders})`,
-    )
-    .bind(...ids)
-    .all();
-  return result.results;
+  const db = getDb(d1);
+  return db
+    .select({
+      id: users.id,
+      display_name: users.display_name,
+      email: users.email,
+      type: users.type,
+      url: users.url,
+      avatar: users.avatar,
+      label: users.label,
+      notify_admin_comment: users.notify_admin_comment,
+      notify_reply: users.notify_reply,
+    })
+    .from(users)
+    .where(inArray(users.id, ids));
 }
 
 /** 公开 2FA 检查：按邮箱查是否启用（只取 2fa 列） */
 export async function getUser2faByEmail(
-  db: D1Database,
+  d1: D1Database,
   email: string,
 ): Promise<{ '2fa': string } | null> {
-  return db
-    .prepare('SELECT "2fa" FROM wl_Users WHERE email = ?')
-    .bind(email)
-    .first<{ '2fa': string }>();
+  const db = getDb(d1);
+  const row = await db
+    .select({ '2fa': users['2fa'] })
+    .from(users)
+    .where(eq(users.email, email))
+    .get();
+  return row ? { '2fa': row['2fa'] ?? '' } : null;
 }
 
 /** 启用/更新 2FA secret */
 export async function setUser2fa(
-  db: D1Database,
+  d1: D1Database,
   userId: number,
   secret: string,
 ): Promise<void> {
-  await db
-    .prepare('UPDATE wl_Users SET "2fa" = ? WHERE id = ?')
-    .bind(secret, userId)
-    .run();
+  const db = getDb(d1);
+  await db.update(users).set({ '2fa': secret }).where(eq(users.id, userId));
 }

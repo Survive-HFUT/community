@@ -17,18 +17,19 @@
   "dependencies": {
     "@nuxt/ui": "^4.11.1",
     "bcryptjs": "^3.0.3",
+    "drizzle-orm": "^0.45.2",
     "nuxt": "^4.5.2",
     "tailwindcss": "^4.3.3",
     "vue": "^3.5.42",
     "vue-router": "^5.3.1"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^5.20260907.1",
+    "@cloudflare/workers-types": "^4.20260702.1",
     "@iconify-json/lucide": "^1.2.130",
     "@types/node": "^26.5.0",
     "prettier": "^3.9.6",
-    "typescript": "^7.0.2",
+    "typescript": "^5.9.3",
     "vue-tsc": "^3.3.7",
-    "wrangler": "^4.129.1"
+    "wrangler": "^4.130.0"
   }
 }

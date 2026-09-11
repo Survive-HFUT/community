@@ -7,8 +7,15 @@
  *   PUT    /api/db?table=Comment&objectId=1 更新一行
  *   DELETE /api/db?table=Comment           清空一张表
  *
- * 已按需求移除流量统计，因此不再包含 Counter 表。
  */
+import { eq, sql } from 'drizzle-orm';
+import { getDb } from '../../database/client';
+import {
+  comments,
+  users,
+  type CommentInsert,
+  type UserInsert,
+} from '../../database/schema';
 import {
   getWalineEnv,
   queryString,
@@ -18,54 +25,74 @@ import {
 
 type Envelope = Record<string, unknown>;
 
-/** Waline 逻辑表名 → D1 实际表名 */
-const TABLE_MAP: Record<string, string> = {
-  Comment: 'wl_Comment',
-  Users: 'wl_Users',
-};
+/** 允许导入/导出的「逻辑表」 */
+const EXPORT_TABLES = ['Comment', 'Users'] as const;
+type LogicalTable = (typeof EXPORT_TABLES)[number];
 
-/** 每张表允许写入的列（防止通过动态列名注入 SQL） */
-const ALLOWED_COLUMNS: Record<string, Set<string>> = {
-  Comment: new Set([
-    'user_id',
-    'comment',
-    'orig',
-    'insertedAt',
-    'ip',
-    'link',
-    'mail',
-    'nick',
-    'pid',
-    'rid',
-    'sticky',
-    'status',
-    'like',
-    'ua',
-    'url',
-    'createdAt',
-    'updatedAt',
-  ]),
-  Users: new Set([
-    'display_name',
-    'email',
-    'password',
-    'type',
-    'label',
-    'url',
-    'avatar',
-    'github',
-    'twitter',
-    'facebook',
-    'google',
-    'weibo',
-    'qq',
-    '2fa',
-    'createdAt',
-    'updatedAt',
-  ]),
-};
+function isLogicalTable(value: string): value is LogicalTable {
+  return value === 'Comment' || value === 'Users';
+}
 
-const EXPORT_TABLES = ['Comment', 'Users'];
+/**
+ * 每张表允许写入的列：逻辑列名 → Drizzle 列对象。
+ * 白名单同时承担两个作用：过滤未知字段、保证不会有动态列名被拼进 SQL。
+ */
+const COLUMNS = {
+  Comment: {
+    user_id: comments.user_id,
+    comment: comments.comment,
+    orig: comments.orig,
+    insertedAt: comments.insertedAt,
+    ip: comments.ip,
+    link: comments.link,
+    mail: comments.mail,
+    nick: comments.nick,
+    pid: comments.pid,
+    rid: comments.rid,
+    sticky: comments.sticky,
+    status: comments.status,
+    like: comments.like,
+    ua: comments.ua,
+    url: comments.url,
+    createdAt: comments.createdAt,
+    updatedAt: comments.updatedAt,
+  },
+  Users: {
+    display_name: users.display_name,
+    email: users.email,
+    password: users.password,
+    type: users.type,
+    label: users.label,
+    url: users.url,
+    avatar: users.avatar,
+    github: users.github,
+    twitter: users.twitter,
+    facebook: users.facebook,
+    google: users.google,
+    weibo: users.weibo,
+    qq: users.qq,
+    '2fa': users['2fa'],
+    createdAt: users.createdAt,
+    updatedAt: users.updatedAt,
+  },
+} as const;
+
+/** 从请求体里挑出白名单内、且值非空的列 */
+function pickColumns(
+  table: LogicalTable,
+  payload: Record<string, unknown>,
+  skip: string[] = [],
+): Record<string, unknown> {
+  const allowed = COLUMNS[table] as Record<string, unknown>;
+  const picked: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(payload)) {
+    if (skip.includes(key)) continue;
+    if (!(key in allowed)) continue;
+    if (value === null || value === undefined) continue;
+    picked[key] = value;
+  }
+  return picked;
+}
 
 /** GET /api/db —— 导出（@waline/admin 会取 `{ __version, ...data }`） */
 export async function exportResponse(event: H3Event): Promise<Envelope> {
@@ -84,17 +111,17 @@ export async function exportResponse(event: H3Event): Promise<Envelope> {
   };
 
   const data = exportData.data as Record<string, unknown[]>;
-  for (const logicalName of EXPORT_TABLES) {
-    const tableName = TABLE_MAP[logicalName];
-    const { results } = await env.DB.prepare(
-      `SELECT * FROM "${tableName}"`,
-    ).all();
-    // D1 的 id → Waline 的 objectId
-    data[logicalName] = (results || []).map((row: any) => ({
-      ...row,
-      objectId: String(row.id),
-    }));
-  }
+  const db = getDb(env.DB);
+
+  // D1 的 id → Waline 的 objectId
+  data.Comment = (await db.select().from(comments)).map((row) => ({
+    ...row,
+    objectId: String(row.id),
+  }));
+  data.Users = (await db.select().from(users)).map((row) => ({
+    ...row,
+    objectId: String(row.id),
+  }));
 
   return { errno: 0, data: exportData };
 }
@@ -108,42 +135,32 @@ export async function insertResponse(
   requireAdmin(event);
 
   const table = queryString(event, 'table');
-  if (!table || !TABLE_MAP[table])
+  if (!table || !isLogicalTable(table))
     return walineFail(event, 'Invalid table', 400);
-
-  const tableName = TABLE_MAP[table];
-  const allowedCols = ALLOWED_COLUMNS[table];
 
   const payload = { ...body };
   delete payload.objectId;
   delete payload.id;
 
-  const keys = Object.keys(payload).filter(
-    (k) =>
-      allowedCols.has(k) && payload[k] !== null && payload[k] !== undefined,
-  );
-  if (keys.length === 0) return walineFail(event, 'Empty data', 400);
+  const values = pickColumns(table, payload);
+  if (Object.keys(values).length === 0)
+    return walineFail(event, 'Empty data', 400);
 
-  const cols = keys.map((k) => `"${k}"`).join(', ');
-  const placeholders = keys.map(() => '?').join(', ');
-  const values = keys.map((k) => payload[k]);
+  const db = getDb(env.DB);
 
-  const result = await env.DB.prepare(
-    `INSERT INTO "${tableName}" (${cols}) VALUES (${placeholders})`,
-  )
-    .bind(...values)
-    .run();
+  if (table === 'Comment') {
+    const [row] = await db
+      .insert(comments)
+      .values(values as unknown as CommentInsert)
+      .returning({ id: comments.id });
+    return { errno: 0, data: { objectId: String(row.id) } };
+  }
 
-  if (!result.success) return walineFail(event, 'Insert failed', 500);
-
-  const row = await env.DB.prepare(
-    `SELECT id FROM "${tableName}" WHERE rowid = last_insert_rowid()`,
-  ).first();
-
-  return {
-    errno: 0,
-    data: { objectId: row ? String((row as any).id) : null },
-  };
+  const [row] = await db
+    .insert(users)
+    .values(values as unknown as UserInsert)
+    .returning({ id: users.id });
+  return { errno: 0, data: { objectId: String(row.id) } };
 }
 
 /** PUT /api/db?table=Comment&objectId=1 —— 更新一行 */
@@ -156,32 +173,39 @@ export async function updateRowResponse(
 
   const table = queryString(event, 'table');
   const objectId = queryString(event, 'objectId');
-  if (!table || !TABLE_MAP[table] || !objectId) {
+  if (!table || !isLogicalTable(table) || !objectId) {
     return walineFail(event, 'Invalid table or objectId', 400);
   }
-
-  const tableName = TABLE_MAP[table];
-  const allowedCols = ALLOWED_COLUMNS[table];
 
   const payload = { ...body };
   delete payload.objectId;
   delete payload.id;
   delete payload.createdAt;
 
-  const keys = Object.keys(payload).filter(
-    (k) =>
-      allowedCols.has(k) && payload[k] !== null && payload[k] !== undefined,
-  );
-  if (keys.length === 0) return { errno: 0 };
+  // updatedAt 统一由下面的 SET 写成当前时间，这里先剔除以免重复赋值
+  const values = pickColumns(table, payload, ['updatedAt']);
+  if (Object.keys(values).length === 0) return { errno: 0 };
 
-  const setClauses = keys.map((k) => `"${k}" = ?`).join(', ');
-  const values = keys.map((k) => payload[k]);
+  const db = getDb(env.DB);
+  const id = Number(objectId);
 
-  await env.DB.prepare(
-    `UPDATE "${tableName}" SET ${setClauses}, "updatedAt" = datetime('now') WHERE id = ?`,
-  )
-    .bind(...values, Number(objectId))
-    .run();
+  if (table === 'Comment') {
+    await db
+      .update(comments)
+      .set({
+        ...values,
+        updatedAt: sql`(datetime('now'))`,
+      } as unknown as Partial<CommentInsert>)
+      .where(eq(comments.id, id));
+  } else {
+    await db
+      .update(users)
+      .set({
+        ...values,
+        updatedAt: sql`(datetime('now'))`,
+      } as unknown as Partial<UserInsert>)
+      .where(eq(users.id, id));
+  }
 
   return { errno: 0 };
 }
@@ -192,9 +216,12 @@ export async function clearTableResponse(event: H3Event): Promise<Envelope> {
   requireAdmin(event);
 
   const table = queryString(event, 'table');
-  if (!table || !TABLE_MAP[table])
+  if (!table || !isLogicalTable(table))
     return walineFail(event, 'Invalid table', 400);
 
-  await env.DB.prepare(`DELETE FROM "${TABLE_MAP[table]}"`).run();
+  const db = getDb(env.DB);
+  if (table === 'Comment') await db.delete(comments);
+  else await db.delete(users);
+
   return { errno: 0 };
 }
