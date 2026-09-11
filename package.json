@@ -29,6 +29,6 @@
     "prettier": "^3.9.6",
     "typescript": "^7.0.2",
     "vue-tsc": "^3.3.7",
-    "wrangler": "^4.122.0"
+    "wrangler": "^4.129.1"
   }
 }
