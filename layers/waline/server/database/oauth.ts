@@ -95,6 +95,11 @@ export async function markOAuthCodeUsed(
 
 // 社交登录/绑定相关，复用 users.ts 的实现。
 export {
-  bindSocial, countUsers, createUser, getSocialConflict, getUserAuthByEmail, getUserById, getUserBySocial
+  bindSocial,
+  countUsers,
+  createUser,
+  getSocialConflict,
+  getUserAuthByEmail,
+  getUserById,
+  getUserBySocial,
 } from './users';
-

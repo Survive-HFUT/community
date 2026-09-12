@@ -1,0 +1,38 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+
+  "name": "community",
+
+  "compatibility_date": "2026-06-03",
+  "compatibility_flags": ["nodejs_compat"],
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "waline-db",
+      "database_id": "43359dbd-a17b-4549-ad08-5bbc5dcc489a",
+    },
+  ],
+
+  "vars": {
+    "SITE_NAME": "活在肥宣社区",
+  },
+
+  "observability": {
+    "logs": {
+      "enabled": true,
+      "invocation_logs": true,
+    },
+  },
+
+  "routes": [
+    {
+      "pattern": "community.survive-hfut.cc",
+      "custom_domain": true,
+      "enabled": true,
+      "previews_enabled": false,
+    },
+  ],
+  "workers_dev": false,
+  "preview_urls": false,
+}

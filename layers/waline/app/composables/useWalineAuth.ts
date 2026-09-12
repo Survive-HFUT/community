@@ -9,8 +9,13 @@ import type { UserInfo } from '../lib/waline/types';
 /**
  * 进行中的资料请求。多处（启动插件、路由守卫、页面）都可能在首屏同时要求
  * 恢复登录态，共用同一个 Promise 可以避免重复打 /api/token。
+ *
+ * `inflightToken` 记录这个请求用的是哪个 token：token 一旦被替换（例如 OAuth
+ * 回调页刚写入新 token），旧的请求就作废 —— 否则会被它的失败结果误清空，
+ * 表现就是「OAuth 回来后必须手动刷新才登录得上」。
  */
 let inflight: Promise<void> | null = null;
+let inflightToken = '';
 
 /**
  * Waline 登录态。
@@ -32,17 +37,24 @@ export function useWalineAuth() {
   /** 用 token 换取用户资料；失败说明 token 已失效，清空登录态 */
   async function init(): Promise<void> {
     if (!token.value) return;
-    if (inflight) return inflight;
+    if (inflight && inflightToken === token.value) return inflight;
 
+    const requestToken = token.value;
     loading.value = true;
+    inflightToken = requestToken;
     inflight = (async () => {
       try {
-        user.value = await getUserInfo();
+        const info = await getUserInfo();
+        // 期间 token 已被替换（如 OAuth 回调写入新 token）→ 丢弃本次结果
+        if (token.value !== requestToken) return;
+        user.value = info;
       } catch {
-        clear();
+        if (token.value === requestToken) clear();
       } finally {
-        loading.value = false;
-        inflight = null;
+        if (inflightToken === requestToken) {
+          loading.value = false;
+          inflight = null;
+        }
       }
     })();
 
@@ -56,6 +68,8 @@ export function useWalineAuth() {
   }
 
   function setToken(nextToken: string, remember: boolean): void {
+    // 换了 token 就等于换了账号，先把上一位用户的资料清掉，避免短暂显示错人
+    if (nextToken !== token.value) user.value = null;
     token.value = nextToken;
     writeStoredToken(nextToken, remember);
   }

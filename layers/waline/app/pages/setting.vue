@@ -235,7 +235,6 @@ onMounted(async () => {
                 />
               </UFormField>
             </div>
-
           </section>
         </div>
       </UCard>

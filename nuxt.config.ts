@@ -11,32 +11,9 @@ export default defineNuxtConfig({
       deployConfig: true,
 
       wrangler: {
-        name: 'community',
-        compatibility_flags: ['nodejs_compat', 'no_nodejs_compat_v2'],
-
-        d1_databases: [
-          {
-            binding: 'DB',
-            database_name: 'waline-db',
-            database_id: '43359dbd-a17b-4549-ad08-5bbc5dcc489a',
-          },
-        ],
-
         assets: {
-          directory: './output/public',
-          binding: 'ASSETS',
-          not_found_handling: 'single-page-application',
-          run_worker_first: ['/api/**'],
+          run_worker_first: true,
         },
-
-        routes: [
-          {
-            pattern: 'community.survive-hfut.cc',
-            custom_domain: true,
-          },
-        ],
-        workers_dev: false,
-        preview_urls: false,
       },
     },
 
@@ -54,6 +31,10 @@ export default defineNuxtConfig({
         '/comments',
         '/user',
         '/setting',
+        // 选修课评价页面都是 ssr:false（打分页还要求登录），预渲染只会得到空壳；
+        // 运行时由 Worker 直接返回 SPA 外壳（assets.run_worker_first: true）。
+        '/electives',
+        '/electives/**',
         // 旧路径只做 302 重定向，不要被爬虫预渲染成静态页。
         '/ui',
         '/ui/**',

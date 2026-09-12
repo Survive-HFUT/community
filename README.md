@@ -5,6 +5,7 @@
 不同业务通过 Nuxt layers 进行注册和管理
 
 - `layers/waline` - Waline 后端服务
+- `layers/electives` - 选修课评价
 
 ## 参考项目
 

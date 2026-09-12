@@ -76,7 +76,8 @@ onMounted(async () => {
     auth.setToken(token, true);
     await auth.init();
     // 子窗口（Waline 评论组件弹窗）OAuth 登录：通知父窗口并关闭弹窗
-    if (auth.user.value && notifyOpener(auth.user.value, token, true)) return;
+    // 无论资料是否取到都必须回传 token，否则父页面会一直停在「登录中」
+    if (notifyOpener(auth.user.value, token, true)) return;
 
     const redirect = forwardedQuery.value.redirect || '';
     if (isExternalUrl(redirect)) {
