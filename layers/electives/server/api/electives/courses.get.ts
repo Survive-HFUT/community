@@ -1,3 +1,4 @@
+import { getWalineEnv } from '../../../../waline/server/waline/context';
 import { queryCourseSummaries, type CourseSort } from '../../electives/store';
 
 const SORTS: CourseSort[] = ['score', 'reviews', 'ease', 'name'];
@@ -16,11 +17,12 @@ function readString(value: unknown): string | undefined {
  *   - `category` 通识教育类别；`all` 或留空表示不限
  *   - `sort`     `score`（默认，综合评分）| `reviews` | `ease` | `name`
  */
-export default defineEventHandler((event) => {
+export default defineEventHandler(async (event) => {
+  const { DB } = getWalineEnv(event);
   const query = getQuery(event);
   const sort = readString(query.sort) as CourseSort | undefined;
 
-  const data = queryCourseSummaries({
+  const data = await queryCourseSummaries(DB, {
     q: readString(query.q),
     type: readString(query.type),
     campus: readString(query.campus),

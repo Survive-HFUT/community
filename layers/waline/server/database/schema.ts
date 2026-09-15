@@ -1,5 +1,5 @@
 /**
- * Drizzle schema —— 与 `layers/waline/schema.sql` 中的 4 张表一一对应。
+ * Drizzle schema —— 与 `layers/waline/schema.sql` 中的业务表一一对应。
  *
  * 约定：**TS 属性名与数据库列名保持一致**（包括 `like` / `2fa` / `display_name`
  * 这类非 camelCase 的列），这样 Drizzle 查出来的行对象与改造前 `D1Result.results`
@@ -11,6 +11,7 @@
 import { sql } from 'drizzle-orm';
 import {
   integer,
+  real,
   sqliteTable,
   text,
   uniqueIndex,
@@ -101,6 +102,46 @@ export const oauthCodes = sqliteTable(
   (t) => [uniqueIndex('idx_oauth_code_code').on(t.code)],
 );
 
+// ---------- elective_courses ----------
+
+/** 选修课评价使用的课程主数据。课程名 + 教师是业务上的唯一身份。 */
+export const electiveCourses = sqliteTable(
+  'elective_courses',
+  {
+    id: text('id').primaryKey(),
+    name: text('name').notNull(),
+    teacher: text('teacher').notNull(),
+    type: text('type').notNull(),
+    campus: text('campus').notNull(),
+    category: text('category'),
+    createdAt: text('createdAt').notNull().default(now()),
+    updatedAt: text('updatedAt').notNull().default(now()),
+  },
+  (t) => [uniqueIndex('idx_elective_courses_identity').on(t.name, t.teacher)],
+);
+
+// ---------- elective_reviews ----------
+
+/** 选修课评价明细；评分使用 REAL 以支持界面上的半星。 */
+export const electiveReviews = sqliteTable('elective_reviews', {
+  id: text('id').primaryKey(),
+  courseId: text('course_id').notNull(),
+  userId: integer('user_id').notNull(),
+  term: text('term').notNull(),
+  reviewerName: text('reviewer_name').notNull(),
+  reviewerAvatar: text('reviewer_avatar'),
+  learnEase: real('learn_ease').notNull(),
+  highScoreEase: real('high_score_ease').notNull(),
+  checkinEase: real('checkin_ease').notNull(),
+  homeworkEase: real('homework_ease').notNull(),
+  examEase: real('exam_ease').notNull(),
+  questions: integer('questions'),
+  /** JSON 编码的 AssessmentForm[]，服务端写入前会做白名单校验。 */
+  assessment: text('assessment').notNull().default('[]'),
+  comment: text('comment'),
+  createdAt: text('createdAt').notNull().default(now()),
+});
+
 // ---------- 推导类型 ----------
 
 export type CommentRow = typeof comments.$inferSelect;
@@ -110,6 +151,10 @@ export type UserInsert = typeof users.$inferInsert;
 export type SettingRow = typeof settings.$inferSelect;
 export type OAuthCodeRow = typeof oauthCodes.$inferSelect;
 export type OAuthCodeInsert = typeof oauthCodes.$inferInsert;
+export type ElectiveCourseRow = typeof electiveCourses.$inferSelect;
+export type ElectiveCourseInsert = typeof electiveCourses.$inferInsert;
+export type ElectiveReviewRow = typeof electiveReviews.$inferSelect;
+export type ElectiveReviewInsert = typeof electiveReviews.$inferInsert;
 
 /** 允许动态赋值给用户的社交列（其他字段名一律忽略，避免 SQL 注入） */
 export const USER_SOCIAL_COLUMNS = {
