@@ -22,13 +22,23 @@ import type {
   ElectiveReviewInput,
   ElectiveScores,
 } from '../../app/lib/electives/types';
-import { MOCK_COURSES, MOCK_REVIEWS } from './mock-data';
+import {
+  matchesElectiveCourse,
+  normalizeCourseField,
+} from '../../app/lib/electives/matching';
+import { OFFICIAL_COURSES } from './official-data';
 
 const SCORE_KEYS = SCORE_DIMENSIONS.map((dimension) => dimension.key);
 const ASSESSMENT_KEYS = ASSESSMENT_FORMS.map((option) => option.value);
 const ASSESSMENT_KEY_SET = new Set<string>(ASSESSMENT_KEYS);
 
-/** 选修课评价存储：保留原有种子数据，并把新增课程与评价写入 D1。 */
+/**
+ * 选修课评价存储。
+ *
+ * 官方课程目录随 Worker 一起发布，用户新增的课程与评价写入 D1。这样课程
+ * 匹配不会依赖外部网站在请求期间可用，评价数据也不再依赖 Worker isolate
+ * 的内存生命周期。
+ */
 
 export type CourseSort = 'score' | 'reviews' | 'ease' | 'name';
 
@@ -67,9 +77,7 @@ function emptyAssessmentCounts(): Record<AssessmentForm, number> {
 }
 
 function courseIdentity(name: string, teacher: string): string {
-  const normalize = (value: string) =>
-    value.trim().replace(/\s+/g, ' ').toLocaleLowerCase();
-  return `${normalize(name)}\u0000${normalize(teacher)}`;
+  return `${normalizeCourseField(name)}\u0000${normalizeCourseField(teacher)}`;
 }
 
 function courseFromRow(row: ElectiveCourseRow): ElectiveCourse {
@@ -80,6 +88,23 @@ function courseFromRow(row: ElectiveCourseRow): ElectiveCourse {
     type: row.type as ElectiveCourse['type'],
     campus: row.campus as ElectiveCourse['campus'],
     category: row.category ? (row.category as ElectiveCategory) : undefined,
+  };
+}
+
+/** D1 只保存可编辑的核心字段，官方快照的代码与来源信息从目录中保留。 */
+function mergePersistedCourse(
+  catalog: ElectiveCourse | undefined,
+  persisted: ElectiveCourse,
+): ElectiveCourse {
+  return {
+    ...catalog,
+    ...persisted,
+    category: persisted.category ?? catalog?.category,
+    courseCode: catalog?.courseCode ?? persisted.courseCode,
+    credits: catalog?.credits ?? persisted.credits,
+    department: catalog?.department ?? persisted.department,
+    sourceTerm: catalog?.sourceTerm ?? persisted.sourceTerm,
+    sourceUrl: catalog?.sourceUrl ?? persisted.sourceUrl,
   };
 }
 
@@ -125,7 +150,7 @@ function reviewFromRow(row: ElectiveReviewRow): ElectiveReview {
   };
 }
 
-/** 读取 D1 并合并种子数据，D1 中同身份的核心字段优先。 */
+/** 读取 D1 并合并官方目录，D1 中同身份的核心字段优先。 */
 async function loadSnapshot(d1: D1Database): Promise<StoreSnapshot> {
   const db = getDb(d1);
   const [courseRows, reviewRows] = await Promise.all([
@@ -134,7 +159,7 @@ async function loadSnapshot(d1: D1Database): Promise<StoreSnapshot> {
   ]);
 
   const coursesByIdentity = new Map<string, ElectiveCourse>();
-  for (const course of MOCK_COURSES) {
+  for (const course of OFFICIAL_COURSES) {
     coursesByIdentity.set(courseIdentity(course.name, course.teacher), {
       ...course,
     });
@@ -142,17 +167,13 @@ async function loadSnapshot(d1: D1Database): Promise<StoreSnapshot> {
   for (const row of courseRows) {
     const persisted = courseFromRow(row);
     const identity = courseIdentity(persisted.name, persisted.teacher);
-    coursesByIdentity.set(identity, persisted);
+    coursesByIdentity.set(
+      identity,
+      mergePersistedCourse(coursesByIdentity.get(identity), persisted),
+    );
   }
 
   const reviewsById = new Map<string, ElectiveReview>();
-  for (const review of MOCK_REVIEWS) {
-    reviewsById.set(review.id, {
-      ...review,
-      scores: { ...review.scores },
-      assessment: [...review.assessment],
-    });
-  }
   for (const row of reviewRows) {
     reviewsById.set(row.id, reviewFromRow(row));
   }
@@ -332,10 +353,10 @@ async function persistCourse(
     )
     .get();
 
-  return row ? courseFromRow(row) : course;
+  return row ? mergePersistedCourse(course, courseFromRow(row)) : course;
 }
 
-/** 按 id 或「课程名 + 教师」匹配课程；匹配不到就新建一门。 */
+/** 按 id 或「课程名 + 教师」匹配课程（支持官方教师团队中的任一成员）。 */
 async function resolveCourse(
   d1: D1Database,
   input: ElectiveReviewInput,
@@ -343,18 +364,15 @@ async function resolveCourse(
   const snapshot = await loadSnapshot(d1);
   const name = input.courseName.trim();
   const teacher = input.teacher.trim();
-  const identity = courseIdentity(name, teacher);
 
   const byId = input.courseId
     ? snapshot.courses.find((course) => course.id === input.courseId)
     : undefined;
   const byIdentity = snapshot.courses.find((course) =>
-    courseIdentity(course.name, course.teacher) === identity,
+    matchesElectiveCourse(course, name, teacher),
   );
   const matched =
-    byId && courseIdentity(byId.name, byId.teacher) === identity
-      ? byId
-      : byIdentity;
+    byId && matchesElectiveCourse(byId, name, teacher) ? byId : byIdentity;
 
   const course =
     matched ??
