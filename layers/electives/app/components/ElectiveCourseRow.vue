@@ -36,6 +36,17 @@ defineProps<{ summary: ElectiveCourseSummary }>();
           · {{ categoryLabel(summary.course.category) }}
         </template>
       </p>
+      <p
+        v-if="summary.course.courseCode || summary.course.credits"
+        class="mt-1 text-xs text-dimmed"
+      >
+        <template v-if="summary.course.courseCode">
+          课程代码 {{ summary.course.courseCode }}
+        </template>
+        <template v-if="summary.course.credits">
+          · {{ summary.course.credits }} 学分
+        </template>
+      </p>
 
       <div
         v-if="summary.reviewCount"

@@ -91,6 +91,33 @@ const assessmentRows = computed(() => {
         </div>
 
         <p class="text-sm text-muted">任课教师：{{ detail.course.teacher }}</p>
+        <p
+          v-if="
+            detail.course.courseCode ||
+            detail.course.credits ||
+            detail.course.department
+          "
+          class="text-xs text-dimmed"
+        >
+          <template v-if="detail.course.courseCode">
+            课程代码 {{ detail.course.courseCode }}
+          </template>
+          <template v-if="detail.course.credits">
+            · {{ detail.course.credits }} 学分
+          </template>
+          <template v-if="detail.course.department">
+            · {{ detail.course.department }}
+          </template>
+        </p>
+        <a
+          v-if="detail.course.sourceUrl"
+          :href="detail.course.sourceUrl"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="inline-flex text-xs text-primary underline-offset-2 hover:underline"
+        >
+          查看官方课程资料
+        </a>
       </div>
 
       <section

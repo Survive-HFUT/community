@@ -12,6 +12,10 @@ import { request } from '../../../waline/app/lib/waline/client';
 interface ElectiveCourseListResponse {
   data: ElectiveCourseSummary[];
   total: number;
+  source?: {
+    term: string;
+    sources: Array<{ label: string; url: string }>;
+  };
 }
 
 interface ElectiveCourseDetailResponse {
@@ -55,6 +59,7 @@ export function useElectiveCourses() {
 
   const courses = computed(() => data.value?.data ?? []);
   const total = computed(() => data.value?.total ?? 0);
+  const source = computed(() => data.value?.source);
 
   return {
     searchInput,
@@ -64,6 +69,7 @@ export function useElectiveCourses() {
     sort,
     courses,
     total,
+    source,
     pending,
     error,
     refresh,
