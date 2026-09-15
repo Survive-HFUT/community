@@ -1,4 +1,8 @@
 import { getWalineEnv } from '../../../../waline/server/waline/context';
+import {
+  OFFICIAL_CATALOG_SOURCES,
+  OFFICIAL_CATALOG_TERM,
+} from '../../../app/lib/electives/catalog';
 import { queryCourseSummaries, type CourseSort } from '../../electives/store';
 
 const SORTS: CourseSort[] = ['score', 'reviews', 'ease', 'name'];
@@ -30,5 +34,12 @@ export default defineEventHandler(async (event) => {
     sort: sort && SORTS.includes(sort) ? sort : 'score',
   });
 
-  return { data, total: data.length };
+  return {
+    data,
+    total: data.length,
+    source: {
+      term: OFFICIAL_CATALOG_TERM,
+      sources: OFFICIAL_CATALOG_SOURCES,
+    },
+  };
 });

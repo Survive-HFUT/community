@@ -15,6 +15,7 @@ const {
   sort,
   courses,
   total,
+  source,
   pending,
   error,
   refresh,
@@ -66,6 +67,21 @@ useSeoMeta({ title: '选修课评价' });
         label="写评价"
       />
     </div>
+
+    <p v-if="source" class="mt-2 text-xs text-dimmed">
+      目录快照：{{ source.term }}，来源：
+      <template v-for="(item, index) in source.sources" :key="item.url">
+        <span v-if="index">、</span>
+        <a
+          :href="item.url"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="text-primary underline-offset-2 hover:underline"
+        >
+          {{ item.label }}
+        </a>
+      </template>
+    </p>
 
     <div class="mt-2 flex items-center gap-3">
       <p v-if="error" class="text-xs text-error">课程列表加载失败</p>

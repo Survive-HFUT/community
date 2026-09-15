@@ -9,7 +9,9 @@ import {
   OVERALL_SCORE_LABEL,
   QUESTIONS_TYPE,
   SCORE_DIMENSIONS,
+  categoryLabel,
   currentTerm,
+  electiveTypeLabel,
   overallScore,
   recentTerms,
 } from '../../lib/electives/constants';
@@ -19,6 +21,7 @@ import {
   writeElectiveReviewDraft,
 } from '../../lib/electives/draft';
 import { apiErrorMessage, formatScore } from '../../lib/electives/format';
+import { matchesElectiveCourse } from '../../lib/electives/matching';
 import type {
   AssessmentForm,
   ElectiveCampus,
@@ -82,7 +85,7 @@ const { courses } = useElectiveCourses();
 
 const courseItems = computed(() =>
   courses.value.map((summary) => ({
-    label: `${summary.course.name}（${summary.course.teacher}）`,
+    label: `${summary.course.name}（${summary.course.teacher}）${summary.course.courseCode ? ` · ${summary.course.courseCode}` : ''}`,
     value: summary.course.id,
   })),
 );
@@ -177,10 +180,34 @@ function applyCourse(course: ElectiveCourse) {
   form.category = course.category;
 }
 
+const matchedCourse = computed(() => {
+  return courses.value.find((item) =>
+    matchesElectiveCourse(item.course, form.courseName, form.teacher),
+  )?.course;
+});
+
+/** 手填课程名和教师命中已有课程时，自动带出类型、校区与通识教育类别。 */
+function syncMatchedCourse() {
+  const course = matchedCourse.value;
+  if (!course) {
+    if (selectedCourseId.value) selectedCourseId.value = '';
+    return;
+  }
+
+  if (selectedCourseId.value !== course.id) {
+    selectedCourseId.value = course.id;
+  }
+  applyCourse(course);
+}
+
 watch(selectedCourseId, (id) => {
   if (!id) return;
   const summary = courses.value.find((item) => item.course.id === id);
   if (summary) applyCourse(summary.course);
+});
+
+watch([() => form.courseName, () => form.teacher, courses], syncMatchedCourse, {
+  immediate: true,
 });
 
 /** 带 `?course=<id>` 进来时预选课程；课程列表是异步的，所以列表到货后也要再试一次 */
@@ -221,10 +248,8 @@ watch(
 
 /** 命中已收录的课程就挂在它下面，否则服务端会新建一门 */
 function resolveCourseId(): string | undefined {
-  const name = form.courseName.trim();
-  const teacher = form.teacher.trim();
-  return courses.value.find(
-    (item) => item.course.name === name && item.course.teacher === teacher,
+  return courses.value.find((item) =>
+    matchesElectiveCourse(item.course, form.courseName, form.teacher),
   )?.course.id;
 }
 
@@ -377,6 +402,13 @@ useSeoMeta({ title: '写选修课评价' });
             />
           </UFormField>
         </div>
+
+        <p v-if="matchedCourse" class="text-xs text-success">
+          已匹配到已有课程：{{ electiveTypeLabel(matchedCourse.type)
+          }}<span v-if="matchedCourse.category">
+            · {{ categoryLabel(matchedCourse.category) }}</span
+          >，相关信息已自动填入。
+        </p>
 
         <UFormField label="考核形式（可多选）" required>
           <UCheckboxGroup

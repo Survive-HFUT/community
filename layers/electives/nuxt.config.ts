@@ -5,7 +5,7 @@
  *   - 页面：/electives/overview、/electives/details/:id、/electives/rate
  *   - 接口：/api/electives/courses、/api/electives/courses/:id、/api/electives/reviews
  *
- * 数据源目前是 `server/electives/` 里的 mock 实现（内存存储，不落库）。
+ * 数据源由 `server/electives/` 合并官方目录快照与 D1 中的用户提交数据。
  */
 export default defineNuxtConfig({
   routeRules: {

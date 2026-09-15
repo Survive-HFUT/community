@@ -55,6 +55,16 @@ export interface ElectiveCourse {
   campus: ElectiveCampus;
   /** 仅 `offline` / `mooc` 有 */
   category?: ElectiveCategory;
+  /** 教务处课程代码；用户新建的课程可能没有该字段 */
+  courseCode?: string;
+  /** 官方目录中的学分；跨专业介绍未提供时为空 */
+  credits?: number;
+  /** 开课部门或来源专业所属院系 */
+  department?: string;
+  /** 该条目录快照对应的学期 */
+  sourceTerm?: string;
+  /** 官方通知或附件地址 */
+  sourceUrl?: string;
 }
 
 /** 一条课程评价 */
