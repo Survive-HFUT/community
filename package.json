@@ -24,12 +24,12 @@
     "vue-router": "^5.3.1"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.20260702.1",
-    "@iconify-json/lucide": "^1.2.130",
-    "@types/node": "^26.5.0",
+    "@cloudflare/workers-types": "^5.20260914.1",
+    "@iconify-json/lucide": "^1.2.132",
+    "@types/node": "^26.5.1",
     "prettier": "^3.9.6",
-    "typescript": "^5.9.3",
+    "typescript": "^7.0.2",
     "vue-tsc": "^3.3.7",
-    "wrangler": "^4.130.0"
+    "wrangler": "^4.131.2"
   }
 }
