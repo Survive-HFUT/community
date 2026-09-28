@@ -120,6 +120,28 @@ export const electiveCourses = sqliteTable(
   (t) => [uniqueIndex('idx_elective_courses_identity').on(t.name, t.teacher)],
 );
 
+// ---------- elective_course_catalog ----------
+
+/** 教务处发布的课程目录；通过版本化 D1 迁移更新，不在 Worker 中硬编码。 */
+export const electiveCourseCatalog = sqliteTable(
+  'elective_course_catalog',
+  {
+    id: text('id').primaryKey(),
+    name: text('name').notNull(),
+    teacher: text('teacher').notNull(),
+    type: text('type').notNull(),
+    campus: text('campus').notNull(),
+    category: text('category'),
+    courseCode: text('course_code'),
+    credits: real('credits'),
+    department: text('department'),
+    sourceTerm: text('source_term').notNull(),
+    sourceLabel: text('source_label').notNull(),
+    sourceUrl: text('source_url').notNull(),
+  },
+  (t) => [uniqueIndex('idx_elective_catalog_identity').on(t.name, t.teacher)],
+);
+
 // ---------- elective_reviews ----------
 
 /** 选修课评价明细；评分使用 REAL 以支持界面上的半星。 */
@@ -153,6 +175,10 @@ export type OAuthCodeRow = typeof oauthCodes.$inferSelect;
 export type OAuthCodeInsert = typeof oauthCodes.$inferInsert;
 export type ElectiveCourseRow = typeof electiveCourses.$inferSelect;
 export type ElectiveCourseInsert = typeof electiveCourses.$inferInsert;
+export type ElectiveCatalogCourseRow =
+  typeof electiveCourseCatalog.$inferSelect;
+export type ElectiveCatalogCourseInsert =
+  typeof electiveCourseCatalog.$inferInsert;
 export type ElectiveReviewRow = typeof electiveReviews.$inferSelect;
 export type ElectiveReviewInsert = typeof electiveReviews.$inferInsert;
 

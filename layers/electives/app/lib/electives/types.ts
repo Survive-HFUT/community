@@ -63,6 +63,8 @@ export interface ElectiveCourse {
   department?: string;
   /** 该条目录快照对应的学期 */
   sourceTerm?: string;
+  /** 官方来源名称 */
+  sourceLabel?: string;
   /** 官方通知或附件地址 */
   sourceUrl?: string;
 }

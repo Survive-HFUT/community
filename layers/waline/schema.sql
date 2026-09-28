@@ -98,6 +98,24 @@ CREATE TABLE IF NOT EXISTS "elective_courses" (
 CREATE UNIQUE INDEX IF NOT EXISTS "idx_elective_courses_identity"
   ON "elective_courses" ("name", "teacher");
 
+CREATE TABLE IF NOT EXISTS "elective_course_catalog" (
+  "id" TEXT PRIMARY KEY,
+  "name" TEXT NOT NULL,
+  "teacher" TEXT NOT NULL,
+  "type" TEXT NOT NULL,
+  "campus" TEXT NOT NULL,
+  "category" TEXT,
+  "course_code" TEXT,
+  "credits" REAL,
+  "department" TEXT,
+  "source_term" TEXT NOT NULL,
+  "source_label" TEXT NOT NULL,
+  "source_url" TEXT NOT NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS "idx_elective_catalog_identity"
+  ON "elective_course_catalog" ("name", "teacher");
+
 CREATE TABLE IF NOT EXISTS "elective_reviews" (
   "id" TEXT PRIMARY KEY,
   "course_id" TEXT NOT NULL,

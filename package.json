@@ -14,6 +14,8 @@
     "db:init:local": "wrangler d1 execute waline-db --local --file=./layers/waline/schema.sql",
     "db:migrate:electives": "wrangler d1 execute waline-db --remote --file=./migrations/2026-09-15-elective-reviews.sql",
     "db:migrate:electives:local": "wrangler d1 execute waline-db --local --file=./migrations/2026-09-15-elective-reviews.sql",
+    "db:migrate:elective-catalog": "wrangler d1 execute waline-db --remote --file=./migrations/2026-09-28-elective-course-catalog.sql",
+    "db:migrate:elective-catalog:local": "wrangler d1 execute waline-db --local --file=./migrations/2026-09-28-elective-course-catalog.sql",
     "format": "prettier --write ./**/*.{js,ts,tsx,vue,json}"
   },
   "dependencies": {

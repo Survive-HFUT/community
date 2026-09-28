@@ -1,9 +1,9 @@
 import { getWalineEnv } from '../../../../waline/server/waline/context';
 import {
-  OFFICIAL_CATALOG_SOURCES,
-  OFFICIAL_CATALOG_TERM,
-} from '../../../app/lib/electives/catalog';
-import { queryCourseSummaries, type CourseSort } from '../../electives/store';
+  getCourseCatalogSource,
+  queryCourseSummaries,
+  type CourseSort,
+} from '../../electives/store';
 
 const SORTS: CourseSort[] = ['score', 'reviews', 'ease', 'name'];
 
@@ -26,20 +26,20 @@ export default defineEventHandler(async (event) => {
   const query = getQuery(event);
   const sort = readString(query.sort) as CourseSort | undefined;
 
-  const data = await queryCourseSummaries(DB, {
-    q: readString(query.q),
-    type: readString(query.type),
-    campus: readString(query.campus),
-    category: readString(query.category),
-    sort: sort && SORTS.includes(sort) ? sort : 'score',
-  });
+  const [data, source] = await Promise.all([
+    queryCourseSummaries(DB, {
+      q: readString(query.q),
+      type: readString(query.type),
+      campus: readString(query.campus),
+      category: readString(query.category),
+      sort: sort && SORTS.includes(sort) ? sort : 'score',
+    }),
+    getCourseCatalogSource(DB),
+  ]);
 
   return {
     data,
     total: data.length,
-    source: {
-      term: OFFICIAL_CATALOG_TERM,
-      sources: OFFICIAL_CATALOG_SOURCES,
-    },
+    ...(source ? { source } : {}),
   };
 });

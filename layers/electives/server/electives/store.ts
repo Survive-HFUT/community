@@ -2,8 +2,10 @@ import { and, eq, or } from 'drizzle-orm';
 import type { D1Database } from '@cloudflare/workers-types';
 import { getDb } from '../../../waline/server/database/client';
 import {
+  electiveCourseCatalog,
   electiveCourses,
   electiveReviews,
+  type ElectiveCatalogCourseRow,
   type ElectiveCourseRow,
   type ElectiveReviewRow,
 } from '../../../waline/server/database/schema';
@@ -26,7 +28,6 @@ import {
   matchesElectiveCourse,
   normalizeCourseField,
 } from '../../app/lib/electives/matching';
-import { OFFICIAL_COURSES } from './official-data';
 
 const SCORE_KEYS = SCORE_DIMENSIONS.map((dimension) => dimension.key);
 const ASSESSMENT_KEYS = ASSESSMENT_FORMS.map((option) => option.value);
@@ -35,9 +36,8 @@ const ASSESSMENT_KEY_SET = new Set<string>(ASSESSMENT_KEYS);
 /**
  * 选修课评价存储。
  *
- * 官方课程目录随 Worker 一起发布，用户新增的课程与评价写入 D1。这样课程
- * 匹配不会依赖外部网站在请求期间可用，评价数据也不再依赖 Worker isolate
- * 的内存生命周期。
+ * 官方课程目录和用户新增的课程与评价都写入 D1。请求期间不抓取教务处附件，
+ * 目录更新通过新的数据库迁移发布。
  */
 
 export type CourseSort = 'score' | 'reviews' | 'ease' | 'name';
@@ -91,7 +91,24 @@ function courseFromRow(row: ElectiveCourseRow): ElectiveCourse {
   };
 }
 
-/** D1 只保存可编辑的核心字段，官方快照的代码与来源信息从目录中保留。 */
+function courseFromCatalogRow(row: ElectiveCatalogCourseRow): ElectiveCourse {
+  return {
+    id: row.id,
+    name: row.name,
+    teacher: row.teacher,
+    type: row.type as ElectiveCourse['type'],
+    campus: row.campus as ElectiveCourse['campus'],
+    category: row.category ? (row.category as ElectiveCategory) : undefined,
+    courseCode: row.courseCode ?? undefined,
+    credits: row.credits ?? undefined,
+    department: row.department ?? undefined,
+    sourceTerm: row.sourceTerm,
+    sourceLabel: row.sourceLabel,
+    sourceUrl: row.sourceUrl,
+  };
+}
+
+/** D1 用户课程覆盖核心字段，但保留官方目录的课程元数据。 */
 function mergePersistedCourse(
   catalog: ElectiveCourse | undefined,
   persisted: ElectiveCourse,
@@ -104,6 +121,7 @@ function mergePersistedCourse(
     credits: catalog?.credits ?? persisted.credits,
     department: catalog?.department ?? persisted.department,
     sourceTerm: catalog?.sourceTerm ?? persisted.sourceTerm,
+    sourceLabel: catalog?.sourceLabel ?? persisted.sourceLabel,
     sourceUrl: catalog?.sourceUrl ?? persisted.sourceUrl,
   };
 }
@@ -150,19 +168,19 @@ function reviewFromRow(row: ElectiveReviewRow): ElectiveReview {
   };
 }
 
-/** 读取 D1 并合并官方目录，D1 中同身份的核心字段优先。 */
+/** 读取 D1 中的课程与评价。 */
 async function loadSnapshot(d1: D1Database): Promise<StoreSnapshot> {
   const db = getDb(d1);
-  const [courseRows, reviewRows] = await Promise.all([
+  const [courseRows, catalogRows, reviewRows] = await Promise.all([
     db.select().from(electiveCourses),
+    db.select().from(electiveCourseCatalog),
     db.select().from(electiveReviews),
   ]);
 
   const coursesByIdentity = new Map<string, ElectiveCourse>();
-  for (const course of OFFICIAL_COURSES) {
-    coursesByIdentity.set(courseIdentity(course.name, course.teacher), {
-      ...course,
-    });
+  for (const row of catalogRows) {
+    const course = courseFromCatalogRow(row);
+    coursesByIdentity.set(courseIdentity(course.name, course.teacher), course);
   }
   for (const row of courseRows) {
     const persisted = courseFromRow(row);
@@ -182,6 +200,39 @@ async function loadSnapshot(d1: D1Database): Promise<StoreSnapshot> {
     courses: [...coursesByIdentity.values()],
     reviews: [...reviewsById.values()],
   };
+}
+
+export interface ElectiveCatalogSource {
+  term: string;
+  sources: Array<{ label: string; url: string }>;
+}
+
+/** 从数据库中的课程元数据聚合目录来源，供总览页展示。 */
+export async function getCourseCatalogSource(
+  d1: D1Database,
+): Promise<ElectiveCatalogSource | undefined> {
+  const db = getDb(d1);
+  const rows = await db
+    .select({
+      sourceTerm: electiveCourseCatalog.sourceTerm,
+      sourceLabel: electiveCourseCatalog.sourceLabel,
+      sourceUrl: electiveCourseCatalog.sourceUrl,
+    })
+    .from(electiveCourseCatalog);
+
+  const term = rows.find((row) => row.sourceTerm)?.sourceTerm;
+  const sources = [
+    ...new Map(
+      rows
+        .filter((row) => row.sourceLabel && row.sourceUrl)
+        .map((row) => [
+          `${row.sourceLabel}\u0000${row.sourceUrl}`,
+          { label: row.sourceLabel!, url: row.sourceUrl! },
+        ]),
+    ).values(),
+  ];
+
+  return term && sources.length ? { term, sources } : undefined;
 }
 
 /** 把一门课的评价聚合成列表项数据。 */
