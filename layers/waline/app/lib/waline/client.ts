@@ -61,7 +61,7 @@ export interface RequestOptions {
 /** 把服务端返回的载荷/状态码转成 ApiError（识别 2FA 提示） */
 function toApiError(payload: any, status: number, fallback: string): ApiError {
   const error = new ApiError(
-    payload?.errmsg || fallback,
+    payload?.errmsg || payload?.data?.message || payload?.message || fallback,
     payload?.errno ?? 1,
     status,
   );

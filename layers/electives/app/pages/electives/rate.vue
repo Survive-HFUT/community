@@ -13,6 +13,11 @@ import {
   overallScore,
   recentTerms,
 } from '../../lib/electives/constants';
+import {
+  hasElectiveReviewDraft,
+  readElectiveReviewDraft,
+  writeElectiveReviewDraft,
+} from '../../lib/electives/draft';
 import { apiErrorMessage, formatScore } from '../../lib/electives/format';
 import type {
   AssessmentForm,
@@ -28,6 +33,7 @@ import { toast } from '../../../../waline/app/composables/waline-toast';
 definePageMeta({ layout: 'waline', middleware: 'waline-auth' });
 
 const route = useRoute();
+const auth = useWalineAuth();
 
 const form = reactive({
   courseName: '',
@@ -50,6 +56,9 @@ const form = reactive({
 });
 
 const submitting = ref(false);
+const draftReady = ref(false);
+const draftRestored = ref(false);
+const draftStatus = ref<'idle' | 'saved' | 'unavailable'>('idle');
 
 /** 通识教育类别只有线下选修课与线上慕课需要填 */
 const showCategory = computed(() => CATEGORY_TYPES.includes(form.type));
@@ -84,6 +93,82 @@ const courseItems = computed(() =>
  */
 const selectedCourseId = ref('');
 
+const draftStorageKey = computed(
+  () =>
+    `community:elective-review-draft:${auth.user.value?.objectId ?? 'anonymous'}`,
+);
+
+function saveDraft() {
+  if (!draftReady.value || !import.meta.client) return;
+
+  try {
+    const saved = writeElectiveReviewDraft(
+      window.localStorage,
+      draftStorageKey.value,
+      form,
+      selectedCourseId.value,
+    );
+    draftStatus.value = saved ? 'saved' : 'idle';
+  } catch {
+    // 隐私模式或浏览器禁用 storage 时，评价仍可正常提交。
+    draftStatus.value = 'unavailable';
+  }
+}
+
+function restoreDraft() {
+  if (!import.meta.client) {
+    draftReady.value = true;
+    return;
+  }
+
+  try {
+    const saved = readElectiveReviewDraft(
+      window.localStorage,
+      draftStorageKey.value,
+    );
+    if (saved) {
+      form.courseName = saved.form.courseName;
+      form.teacher = saved.form.teacher;
+      form.type = saved.form.type;
+      form.campus = saved.form.campus;
+      form.category = saved.form.category;
+      form.term = saved.form.term;
+      form.questions = saved.form.questions;
+      form.assessment = [...saved.form.assessment];
+      form.comment = saved.form.comment;
+      Object.assign(form.scores, saved.form.scores);
+      selectedCourseId.value = saved.selectedCourseId;
+      draftRestored.value = hasElectiveReviewDraft(
+        saved.form,
+        saved.selectedCourseId,
+      );
+      if (draftRestored.value) {
+        draftStatus.value = 'saved';
+        toast('已恢复上次未提交的评价草稿');
+      }
+    }
+  } catch {
+    draftStatus.value = 'unavailable';
+  } finally {
+    // 恢复动作完成后才允许 watch 写回，避免用初始空表单覆盖草稿。
+    draftReady.value = true;
+  }
+}
+
+function clearDraft() {
+  if (!import.meta.client) return;
+  try {
+    window.localStorage.removeItem(draftStorageKey.value);
+    draftStatus.value = 'idle';
+  } catch {
+    draftStatus.value = 'unavailable';
+  }
+}
+
+function handlePageHide() {
+  saveDraft();
+}
+
 function applyCourse(course: ElectiveCourse) {
   form.courseName = course.name;
   form.teacher = course.teacher;
@@ -102,14 +187,28 @@ watch(selectedCourseId, (id) => {
 function applyPreselect() {
   const courseId =
     typeof route.query.course === 'string' ? route.query.course : '';
-  if (!courseId || selectedCourseId.value) return;
+  if (!courseId || selectedCourseId.value || draftRestored.value) return;
   if (courses.value.some((item) => item.course.id === courseId)) {
     selectedCourseId.value = courseId;
   }
 }
 
-onMounted(applyPreselect);
 watch(courses, applyPreselect);
+
+watch(form, saveDraft, { deep: true, flush: 'sync' });
+watch(selectedCourseId, saveDraft, { flush: 'sync' });
+
+onMounted(() => {
+  restoreDraft();
+  applyPreselect();
+  window.addEventListener('pagehide', handlePageHide);
+});
+
+onUnmounted(() => {
+  if (import.meta.client) {
+    window.removeEventListener('pagehide', handlePageHide);
+  }
+});
 
 // 切到不需要类别的类型就清掉已选类别；非慕课清掉题数
 watch(
@@ -163,6 +262,7 @@ async function submit() {
     return;
   }
 
+  saveDraft();
   submitting.value = true;
   try {
     const review = await submitElectiveReview({
@@ -179,6 +279,7 @@ async function submit() {
       comment: form.comment.trim() || undefined,
     });
 
+    clearDraft();
     toast('评价已提交，感谢分享');
     await navigateTo(`/electives/details/${review.courseId}`);
   } catch (error) {
@@ -205,6 +306,7 @@ useSeoMeta({ title: '写选修课评价' });
         <USelectMenu
           v-model="selectedCourseId"
           :items="courseItems"
+          value-key="value"
           search-input
           placeholder="搜索已收录的课程…"
           class="w-full sm:max-w-md"
@@ -277,15 +379,12 @@ useSeoMeta({ title: '写选修课评价' });
         </div>
 
         <UFormField label="考核形式（可多选）" required>
-          <div class="flex flex-wrap gap-x-6 gap-y-2 pt-1">
-            <UCheckbox
-              v-for="option in ASSESSMENT_FORMS"
-              :key="option.value"
-              v-model="form.assessment"
-              :value="option.value"
-              :label="option.label"
-            />
-          </div>
+          <UCheckboxGroup
+            v-model="form.assessment"
+            :items="ASSESSMENT_FORMS"
+            orientation="horizontal"
+            class="pt-1"
+          />
         </UFormField>
       </section>
 
@@ -360,19 +459,30 @@ useSeoMeta({ title: '写选修课评价' });
         />
       </section>
 
-      <div class="flex items-center gap-2">
-        <UButton
-          type="submit"
-          :loading="submitting"
-          icon="i-lucide-send"
-          label="提交评价"
-        />
-        <UButton
-          to="/electives/overview"
-          color="neutral"
-          variant="ghost"
-          label="取消"
-        />
+      <div class="space-y-2">
+        <p class="text-xs text-muted">
+          <template v-if="draftStatus === 'saved'">
+            草稿已自动保存到本设备，提交成功后会清除。
+          </template>
+          <template v-else-if="draftStatus === 'unavailable'">
+            当前浏览器无法使用本地缓存，建议提交前不要关闭页面。
+          </template>
+          <template v-else>填写中的内容会自动保存到本设备。</template>
+        </p>
+        <div class="flex items-center gap-2">
+          <UButton
+            type="submit"
+            :loading="submitting"
+            icon="i-lucide-send"
+            label="提交评价"
+          />
+          <UButton
+            to="/electives/overview"
+            color="neutral"
+            variant="ghost"
+            label="取消"
+          />
+        </div>
       </div>
     </form>
   </WalinePage>

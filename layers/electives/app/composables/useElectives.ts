@@ -7,6 +7,7 @@ import type {
   ElectiveReviewInput,
   ElectiveType,
 } from '../lib/electives/types';
+import { request } from '../../../waline/app/lib/waline/client';
 
 interface ElectiveCourseListResponse {
   data: ElectiveCourseSummary[];
@@ -88,9 +89,8 @@ export function useElectiveCourse(id: MaybeRefOrGetter<string>) {
 export async function submitElectiveReview(
   input: ElectiveReviewInput,
 ): Promise<ElectiveReview> {
-  const response = await $fetch<{ data: ElectiveReview }>(
-    '/api/electives/reviews',
-    { method: 'POST', body: input },
-  );
-  return response.data;
+  return request<ElectiveReview>('/electives/reviews', {
+    method: 'POST',
+    body: input,
+  });
 }

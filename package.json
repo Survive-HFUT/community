@@ -12,6 +12,8 @@
     "typecheck": "nuxt typecheck",
     "db:init": "wrangler d1 execute waline-db --remote --file=./layers/waline/schema.sql",
     "db:init:local": "wrangler d1 execute waline-db --local --file=./layers/waline/schema.sql",
+    "db:migrate:electives": "wrangler d1 execute waline-db --remote --file=./migrations/2026-09-15-elective-reviews.sql",
+    "db:migrate:electives:local": "wrangler d1 execute waline-db --local --file=./migrations/2026-09-15-elective-reviews.sql",
     "format": "prettier --write ./**/*.{js,ts,tsx,vue,json}"
   },
   "dependencies": {

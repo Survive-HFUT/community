@@ -15,7 +15,10 @@ import type {
   ElectiveType,
 } from '../../../app/lib/electives/types';
 // 复用 waline layer 的鉴权中间件写入的登录态（见 server/middleware/01.waline-auth.ts）
-import { requireUser } from '../../../../waline/server/waline/context';
+import {
+  getWalineEnv,
+  requireUser,
+} from '../../../../waline/server/waline/context';
 import { addReview } from '../../electives/store';
 
 /** 中文提示放在 `data.message`，`statusMessage` 保持 ASCII */
@@ -34,11 +37,12 @@ function readString(value: unknown): string {
 /**
  * POST /api/electives/reviews —— 提交一条选修课评价（需登录）
  *
- * mock 实现：只做校验并写入内存，不落库（见 `server/electives/store.ts`）。
- * 课程按 `courseId` 或「课程名 + 教师」匹配，匹配不到会新建一门课程。
+ * 课程按 `courseId` 或「课程名 + 教师」匹配，匹配不到会新建一门课程；
+ * 课程和评价都会写入 D1。
  */
 export default defineEventHandler(async (event) => {
   const user = requireUser(event);
+  const { DB } = getWalineEnv(event);
   const body = ((await readBody(event)) ?? {}) as Record<string, unknown>;
 
   const courseName = readString(body.courseName);
@@ -73,18 +77,27 @@ export default defineEventHandler(async (event) => {
   const scores = {} as ElectiveScores;
   for (const dimension of SCORE_DIMENSIONS) {
     const value = Number(scoresInput[dimension.key]);
-    if (!Number.isInteger(value) || value < 1 || value > 5) {
+    if (
+      !Number.isFinite(value) ||
+      !Number.isInteger(value * 2) ||
+      value < 1 ||
+      value > 5
+    ) {
       throw badRequest(`请为「${dimension.label}」打分（1–5 星）`);
     }
     scores[dimension.key] = value;
   }
 
   const assessment = Array.isArray(body.assessment)
-    ? body.assessment.filter(
-        (value): value is AssessmentForm =>
-          typeof value === 'string' &&
-          ASSESSMENT_FORMS.some((option) => option.value === value),
-      )
+    ? [
+        ...new Set(
+          body.assessment.filter(
+            (value): value is AssessmentForm =>
+              typeof value === 'string' &&
+              ASSESSMENT_FORMS.some((option) => option.value === value),
+          ),
+        ),
+      ]
     : [];
   if (!assessment.length) throw badRequest('请至少选择一种考核形式');
 
@@ -103,7 +116,8 @@ export default defineEventHandler(async (event) => {
     questions = value;
   }
 
-  const review = addReview(
+  const review = await addReview(
+    DB,
     {
       courseId: readString(body.courseId) || undefined,
       courseName,
@@ -118,6 +132,7 @@ export default defineEventHandler(async (event) => {
       comment: readString(body.comment).slice(0, 1000) || undefined,
     },
     {
+      id: user.objectId,
       name: user.display_name || user.email,
       avatar: user.avatar || undefined,
     },
