@@ -34,6 +34,18 @@ function parseOS(ua: string): string {
   if (/Windows NT 6\.2/.test(ua)) return 'Windows 8';
   if (/Windows NT 6\.1/.test(ua)) return 'Windows 7';
   if (/Windows/.test(ua)) return 'Windows';
+
+  // Prefer the actual platform version supplied by the comment widget when available.
+  const macOSVersionHint = ua.match(
+    /\[macOS platform version=(\d+(?:\.\d+){0,3})\]/,
+  )?.[1];
+  if (macOSVersionHint) {
+    return `macOS ${macOSVersionHint.split('.').slice(0, 2).join('.')}`;
+  }
+
+  // Browsers freeze the macOS UA at 10.15.7, so do not present it as the installed version.
+  if (/Mac OS X 10[._]15[._]7(?:[; )]|$)/.test(ua)) return 'macOS';
+
   if (/Mac OS X (\d+[._]\d+)/.test(ua)) {
     const v = ua.match(/Mac OS X (\d+[._]\d+)/)?.[1]?.replace(/_/g, '.');
     return `macOS ${v}`;
