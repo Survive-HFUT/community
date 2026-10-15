@@ -17,21 +17,21 @@
     "format": "prettier --write ./**/*.{js,ts,tsx,vue,json}"
   },
   "dependencies": {
-    "@nuxt/ui": "^4.11.1",
+    "@nuxt/ui": "^4.11.3",
     "bcryptjs": "^3.0.3",
-    "drizzle-orm": "^0.45.3",
-    "nuxt": "^4.5.2",
+    "drizzle-orm": "^0.45.4",
+    "nuxt": "^4.6.1",
     "tailwindcss": "^4.3.3",
     "vue": "^3.5.43",
-    "vue-router": "^5.3.1"
+    "vue-router": "^5.4.0"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^5.20260921.1",
-    "@iconify-json/lucide": "^1.2.135",
-    "@types/node": "^26.6.2",
-    "prettier": "^3.9.8",
+    "@cloudflare/workers-types": "^5.20261012.1",
+    "@iconify-json/lucide": "^1.2.143",
+    "@types/node": "^26.6.5",
+    "prettier": "^3.9.10",
     "typescript": "^7.0.2",
-    "vue-tsc": "^3.3.7",
-    "wrangler": "^4.136.1"
+    "vue-tsc": "^3.3.13",
+    "wrangler": "^4.149.0"
   }
 }
